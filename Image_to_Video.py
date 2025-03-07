@@ -3,6 +3,7 @@ import os
 import cv2
 import glob
 import random
+import numpy as np
 
 # 設定本機的資料夾路徑
 input_folder = r"D:\\CIEKH\\Photo\\113"
@@ -11,7 +12,7 @@ video_output_path = r"D:\\CIEKH\\Photo\\Video\\slideshow.mp4"
 os.makedirs(output_folder, exist_ok=True)  # 如果輸出資料夾不存在，則創建它
 
 # 設定每張圖片的播放時間（秒）
-display_seconds = 5
+display_seconds = 7
 
 def blur_and_resize_image(image_path, output_path, target_width, target_height):
     # 開啟圖片文件
@@ -88,7 +89,7 @@ video = cv2.VideoWriter(video_output_path, cv2.VideoWriter_fourcc(*"mp4v"), 1/di
 
 # 將每張圖片寫入視頻文件中
 for image_path in output_images:
-    frame = cv2.imread(image_path)
+    frame = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
     if frame is None:
         print(f"讀取圖片失敗，跳過: {image_path}")
         continue
