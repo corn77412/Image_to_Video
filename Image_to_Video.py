@@ -1,101 +1,94 @@
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageDraw, ImageFont
 import os
 import cv2
-import glob
-import random
 import numpy as np
 
-# 設定本機的資料夾路徑
-input_folder = r"D:\\CIEKH\\Photo\\113"
-output_folder = r"D:\\CIEKH\\Photo\\Video"
-video_output_path = r"D:\\CIEKH\\Photo\\Video\\slideshow.mp4"
-os.makedirs(output_folder, exist_ok=True)  # 如果輸出資料夾不存在，則創建它
+# 設定參數
+input_root_folder = r"\\172.16.246.140\w\W6\W68\W683\W68公共事務\中工會高雄分會年會照片\影片素材"
+video_output_path = r"\\172.16.246.140\w\W6\W68\W683\W68公共事務\中工會高雄分會年會照片\影片素材\video.mp4"
+display_seconds = 5
+fps = 30
+frames_per_image = int(fps * display_seconds)
+target_width, target_height = 1920, 1080
+text_height = 80
 
-# 設定每張圖片的播放時間（秒）
-display_seconds = 7
+os.makedirs(os.path.dirname(video_output_path), exist_ok=True)
 
-def blur_and_resize_image(image_path, output_path, target_width, target_height):
-    # 開啟圖片文件
-    with Image.open(image_path) as img:
-        # 使用單次強化的方框模糊來達到較強的模糊效果
-        blurred_img = img.filter(ImageFilter.BoxBlur(25))  # 增強模糊強度
+def blur_and_resize_image_in_memory(img, target_width, target_height, folder_name=None):
+    blurred_img = img.filter(ImageFilter.BoxBlur(25))
+    img_ratio = img.width / img.height
+    target_ratio = target_width / (target_height - text_height)
 
-        # 計算寬高比以保持原始比例
-        img_ratio = img.width / img.height
-        target_ratio = target_width / target_height
+    if img_ratio > target_ratio:
+        new_height = target_height - text_height
+        new_width = int(new_height * img_ratio)
+    else:
+        new_width = target_width
+        new_height = int(new_width / img_ratio)
 
-        # 根據寬高比調整圖片大小，保持圖片不變形
-        if img_ratio > target_ratio:
-            new_height = target_height
-            new_width = int(new_height * img_ratio)
-        else:
-            new_width = target_width
-            new_height = int(new_width / img_ratio)
+    resized_blurred_img = blurred_img.resize((new_width, new_height), Image.BILINEAR)
+    final_img = Image.new("RGB", (target_width, target_height))
+    left = (target_width - new_width) // 2
+    top = (target_height - text_height - new_height) // 2
+    final_img.paste(resized_blurred_img, (left, top))
 
-        # 調整模糊圖片大小，使其適合目標畫布
-        resized_blurred_img = blurred_img.resize((new_width, new_height), Image.BILINEAR)
+    scale_height = target_height - text_height
+    scale_width = int(scale_height * img_ratio)
+    original_resized = img.resize((scale_width, scale_height), Image.BILINEAR)
+    left = (target_width - scale_width) // 2
+    final_img.paste(original_resized, (left, 0))
 
-        # 創建最終的目標畫布，大小為 1920x1080
-        final_img = Image.new("RGB", (target_width, target_height))
-
-        # 計算貼上模糊圖片的位置，使其置中於目標畫布
-        left = (target_width - new_width) // 2
-        top = (target_height - new_height) // 2
-
-        # 將調整後的模糊圖片貼到目標畫布上
-        final_img.paste(resized_blurred_img, (left, top))
-
-        # 將原始圖片按高度縮放到1080，保持比例不變
-        scale_height = target_height
-        scale_width = int(scale_height * img_ratio)
-        original_resized = img.resize((scale_width, scale_height), Image.BILINEAR)
-
-        # 計算原始圖片的位置，使其水平置中
-        left = (target_width - scale_width) // 2
-        top = 0  # 縮放後的原始圖片垂直居中
-
-        # 將原始圖片疊加在模糊背景上
-        final_img.paste(original_resized, (left, top))
-
-        # 保存處理後的圖片，不降低質量
-        final_img.save(output_path, "JPEG")
-
-# 設定目標畫布的尺寸
-target_width = 1920
-target_height = 1080
-
-# 對資料夾中的所有圖片進行處理
-for filename in os.listdir(input_folder):
-    if filename.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif")):
-        input_path = os.path.join(input_folder, filename)
-        output_path = os.path.join(output_folder, filename)
+    # 如果有 folder_name，則添加文字說明（無背景）
+    if folder_name:
+        draw = ImageDraw.Draw(final_img)
+        # 動態載入 input_root_folder 中的字體檔案
+        font_path = os.path.join(input_root_folder, "DFFN_L5.ttc")
+        font_size = 40
         try:
-            blur_and_resize_image(input_path, output_path, target_width, target_height)
-            print(f"成功處理圖片: {filename}")
+            font = ImageFont.truetype(font_path, font_size)
         except Exception as e:
-            print(f"處理圖片時出錯: {filename}, 錯誤: {e}")
+            print(f"⚠️ 無法載入字體 {font_path}，錯誤: {e}，改用系統預設字體")
+            try:
+                font = ImageFont.truetype("C:\\Windows\\Fonts\\msjh.ttc", font_size)  # 備用字體
+            except:
+                font = ImageFont.load_default()  # 最後退路（可能不支援中文）
 
-print("圖片處理完成！")
+        text = folder_name
+        text_width = font.getlength(text)
+        text_height_actual = font.getbbox(text)[3]
+        # 移除 text_bg，直接在圖片上繪製文字
+        text_x = (target_width - text_width) // 2
+        text_y = target_height - text_height + (text_height - text_height_actual) // 2
+        draw.text((text_x, text_y), text, font=font, fill=(0, 0, 255))
 
-# 創建幻燈片輪播視頻
-output_images = glob.glob(os.path.join(output_folder, "*"))
-random.shuffle(output_images)  # 將圖片順序隨機打亂
+    return final_img
 
-# 設定視頻的尺寸
-height, width = target_height, target_width
+# 讀取並排序圖片
+image_paths = []
+for root, _, files in os.walk(input_root_folder):
+    folder_name = os.path.basename(root)
+    # 如果 root 是 input_root_folder 本身，folder_name 設為 None
+    if root == input_root_folder:
+        folder_name = None
+    for filename in sorted(files):
+        if filename.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif")):
+            image_paths.append((root, filename, folder_name))
+image_paths.sort(key=lambda x: (x[0], x[1]))
 
-# 創建 VideoWriter 對象
-video = cv2.VideoWriter(video_output_path, cv2.VideoWriter_fourcc(*"mp4v"), 1/display_seconds, (target_width, target_height))
+# 生成影片
+video = cv2.VideoWriter(video_output_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (target_width, target_height))
+for root, filename, folder_name in image_paths:
+    input_path = os.path.join(root, filename)
+    try:
+        with Image.open(input_path) as img:
+            final_img = blur_and_resize_image_in_memory(img, target_width, target_height, folder_name)
+            img_array = np.array(final_img)
+            img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            for _ in range(frames_per_image):
+                video.write(img_bgr)
+            print(f"🎞️ 成功寫入圖片: {filename} ({folder_name if folder_name else '無文字'})")
+    except Exception as e:
+        print(f"❌ 處理圖片時出錯: {filename}, 錯誤: {e}")
 
-# 將每張圖片寫入視頻文件中
-for image_path in output_images:
-    frame = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
-    if frame is None:
-        print(f"讀取圖片失敗，跳過: {image_path}")
-        continue
-    video.write(frame)
-    print(f"成功寫入圖片到視頻: {image_path}")
-
-# 釋放視頻對象
 video.release()
-print("幻燈片視頻已創建！")
+print("🎬 ✅ 幻燈片視頻已創建！")
