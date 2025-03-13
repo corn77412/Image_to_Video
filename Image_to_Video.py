@@ -5,14 +5,14 @@ import numpy as np  # 匯入 NumPy 模組，用於陣列操作
 
 # 設定參數
 input_root_folder = r"\\172.16.246.140\w\W6\W68\W683\W68公共事務\中工會高雄分會年會照片\影片素材"  # 設定輸入圖片的根目錄路徑
-video_output_path = r"\\172.16.246.140\w\W6\W68\W683\W68公共事務\中工會高雄分會年會照片\影片素材\video.mp4"  # 設定輸出影片的路徑
+video_output_path = os.path.join(os.path.expanduser("~"), "Desktop", "video.mp4")  # 設定輸出影片路徑為桌面，檔案名為 video.mp4
 display_seconds = 5  # 設定每張圖片顯示的秒數
 fps = 30  # 設定影片的每秒幀數 (frames per second)
 frames_per_image = int(fps * display_seconds)  # 計算每張圖片需要的幀數
 target_width, target_height = 1920, 1080  # 設定影片的目標寬度和高度（解析度）
 text_height = 80  # 設定文字區域的高度（僅用於文字定位，不影響圖片縮放）
 
-os.makedirs(os.path.dirname(video_output_path), exist_ok=True)  # 確保輸出影片的目錄存在，若不存在則創建
+os.makedirs(os.path.dirname(video_output_path), exist_ok=True)  # 確保輸出影片的目錄存在，若不存在則創建（桌面應已存在）
 
 def blur_and_resize_image_in_memory(img, target_width, target_height, folder_name=None):  # 定義處理圖片的函數，接受圖片、目標尺寸和資料夾名稱
     blurred_img = img.filter(ImageFilter.BoxBlur(25))  # 對圖片應用模糊濾鏡，模糊半徑為 25
@@ -64,7 +64,8 @@ def blur_and_resize_image_in_memory(img, target_width, target_height, folder_nam
     return final_img  # 返回處理完成的圖片
 
 # 讀取並排序圖片
-image_paths = []  # 初始化一個空列表，用於儲存圖片路徑和相關資訊
+image_paths = []  # 初始化一個空列表，用於儲存圖片路徑和相關資訊（不含 Ending.jpg）
+ending_image = None  # 初始化 Ending.jpg 的儲存變數
 for root, _, files in os.walk(input_root_folder):  # 遍歷 input_root_folder 及其子資料夾
     folder_name = os.path.basename(root)  # 取得當前資料夾的名稱
     # 如果 root 是 input_root_folder 本身或特定子資料夾，folder_name 設為 None
@@ -72,12 +73,15 @@ for root, _, files in os.walk(input_root_folder):  # 遍歷 input_root_folder �
         folder_name = None  # 根目錄和 "114年聯合年會贊助商芳名錄" 的圖片不顯示文字
     for filename in sorted(files):  # 遍歷資料夾中的檔案，並按名稱排序
         if filename.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif")):  # 檢查檔案是否為支援的圖片格式
-            image_paths.append((root, filename, folder_name))  # 將路徑、檔案名和資料夾名稱加入列表
-image_paths.sort(key=lambda x: (x[0], x[1]))  # 按資料夾和檔案名稱排序圖片列表
+            if root == input_root_folder and filename == "Ending.jpg":  # 檢查是否為根目錄中的 Ending.jpg
+                ending_image = (root, filename, None)  # 儲存 Ending.jpg 的資訊，設定無文字
+            else:  # 其他圖片加入正常排序
+                image_paths.append((root, filename, folder_name))  # 將路徑、檔案名和資料夾名稱加入列表
+image_paths.sort(key=lambda x: (x[0], x[1]))  # 按資料夾和檔案名稱排序圖片列表（不含 Ending.jpg）
 
 # 生成影片
 video = cv2.VideoWriter(video_output_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (target_width, target_height))  # 創建影片寫入物件，使用 mp4v 編碼
-for root, filename, folder_name in image_paths:  # 遍歷排序後的圖片列表
+for root, filename, folder_name in image_paths:  # 遍歷排序後的圖片列表（不含 Ending.jpg）
     input_path = os.path.join(root, filename)  # 組合圖片的完整路徑
     try:  # 嘗試處理圖片
         with Image.open(input_path) as img:  # 開啟圖片檔案
@@ -89,6 +93,21 @@ for root, filename, folder_name in image_paths:  # 遍歷排序後的圖片列�
             print(f"🎞️ 成功寫入圖片: {filename} ({folder_name if folder_name else '無文字'})")  # 輸出成功訊息
     except Exception as e:  # 如果處理失敗，捕捉異常
         print(f"❌ 處理圖片時出錯: {filename}, 錯誤: {e}")  # 輸出錯誤訊息
+
+# 處理 Ending.jpg（放在影片結尾）
+if ending_image:  # 檢查是否找到 Ending.jpg
+    root, filename, folder_name = ending_image  # 解包 Ending.jpg 的資訊
+    input_path = os.path.join(root, filename)  # 組合 Ending.jpg 的完整路徑
+    try:  # 嘗試處理 Ending.jpg
+        with Image.open(input_path) as img:  # 開啟 Ending.jpg
+            final_img = blur_and_resize_image_in_memory(img, target_width, target_height, folder_name)  # 處理圖片（無文字）
+            img_array = np.array(final_img)  # 將圖片轉換為 NumPy 陣列
+            img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)  # 將圖片從 RGB 轉換為 BGR（OpenCV 格式）
+            for _ in range(frames_per_image):  # 為 Ending.jpg 寫入指定幀數
+                video.write(img_bgr)  # 將 Ending.jpg 寫入影片
+            print(f"🎞️ 成功寫入結尾圖片: {filename} (無文字)")  # 輸出成功訊息
+    except Exception as e:  # 如果處理失敗，捕捉異常
+        print(f"❌ 處理結尾圖片時出錯: {filename}, 錯誤: {e}")  # 輸出錯誤訊息
 
 video.release()  # 釋放影片寫入物件，完成影片生成
 print("🎬 ✅ 幻燈片視頻已創建！")  # 輸出完成訊息
