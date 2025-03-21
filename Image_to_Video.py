@@ -2,15 +2,18 @@ from PIL import Image, ImageFilter, ImageDraw, ImageFont  # 匯入 PIL 模組，
 import os  # 匯入 os 模組，用於檔案和目錄操作
 import cv2  # 匯入 OpenCV 模組，用於影片生成
 import numpy as np  # 匯入 NumPy 模組，用於陣列操作
+from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_audioclips  # 匯入 moviepy 模組，用於處理影片和音訊
 
 # 設定參數
 input_root_folder = r"\\172.16.246.140\w\W6\W68\W683\W68公共事務\中工會高雄分會年會照片\影片素材"  # 設定輸入圖片的根目錄路徑
 video_output_path = os.path.join(os.path.expanduser("~"), "Desktop", "video.mp4")  # 設定輸出影片路徑為桌面，檔案名為 video.mp4
+audio_path = os.path.join(input_root_folder, "background_music.mp3")  # 設定背景音樂的路徑（假設在 input_root_folder 中）
 display_seconds = 5  # 設定每張圖片顯示的秒數
 fps = 30  # 設定影片的每秒幀數 (frames per second)
 frames_per_image = int(fps * display_seconds)  # 計算每張圖片需要的幀數
 target_width, target_height = 1920, 1080  # 設定影片的目標寬度和高度（解析度）
 text_height = 80  # 設定文字區域的高度（僅用於文字定位，不影響圖片縮放）
+temp_video_path = os.path.join(os.path.expanduser("~"), "Desktop", "temp_video.mp4")  # 設定臨時影片路徑（無音訊）
 
 os.makedirs(os.path.dirname(video_output_path), exist_ok=True)  # 確保輸出影片的目錄存在，若不存在則創建（桌面應已存在）
 
@@ -79,8 +82,8 @@ for root, _, files in os.walk(input_root_folder):  # 遍歷 input_root_folder �
                 image_paths.append((root, filename, folder_name))  # 將路徑、檔案名和資料夾名稱加入列表
 image_paths.sort(key=lambda x: (x[0], x[1]))  # 按資料夾和檔案名稱排序圖片列表（不含 Ending.jpg）
 
-# 生成影片
-video = cv2.VideoWriter(video_output_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (target_width, target_height))  # 創建影片寫入物件，使用 mp4v 編碼
+# 生成臨時影片（無音訊）
+video = cv2.VideoWriter(temp_video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (target_width, target_height))  # 創建臨時影片寫入物件，使用 mp4v 編碼
 for root, filename, folder_name in image_paths:  # 遍歷排序後的圖片列表（不含 Ending.jpg）
     input_path = os.path.join(root, filename)  # 組合圖片的完整路徑
     try:  # 嘗試處理圖片
@@ -89,7 +92,7 @@ for root, filename, folder_name in image_paths:  # 遍歷排序後的圖片列�
             img_array = np.array(final_img)  # 將圖片轉換為 NumPy 陣列
             img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)  # 將圖片從 RGB 轉換為 BGR（OpenCV 格式）
             for _ in range(frames_per_image):  # 為每張圖片寫入指定幀數
-                video.write(img_bgr)  # 將圖片寫入影片
+                video.write(img_bgr)  # 將圖片寫入臨時影片
             print(f"🎞️ 成功寫入圖片: {filename} ({folder_name if folder_name else '無文字'})")  # 輸出成功訊息
     except Exception as e:  # 如果處理失敗，捕捉異常
         print(f"❌ 處理圖片時出錯: {filename}, 錯誤: {e}")  # 輸出錯誤訊息
@@ -104,10 +107,24 @@ if ending_image:  # 檢查是否找到 Ending.jpg
             img_array = np.array(final_img)  # 將圖片轉換為 NumPy 陣列
             img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)  # 將圖片從 RGB 轉換為 BGR（OpenCV 格式）
             for _ in range(frames_per_image):  # 為 Ending.jpg 寫入指定幀數
-                video.write(img_bgr)  # 將 Ending.jpg 寫入影片
+                video.write(img_bgr)  # 將 Ending.jpg 寫入臨時影片
             print(f"🎞️ 成功寫入結尾圖片: {filename} (無文字)")  # 輸出成功訊息
     except Exception as e:  # 如果處理失敗，捕捉異常
         print(f"❌ 處理結尾圖片時出錯: {filename}, 錯誤: {e}")  # 輸出錯誤訊息
 
-video.release()  # 釋放影片寫入物件，完成影片生成
-print("🎬 ✅ 幻燈片視頻已創建！")  # 輸出完成訊息
+video.release()  # 釋放臨時影片寫入物件，完成無音訊影片生成
+
+# 加入循環音訊並生成最終影片
+video_clip = VideoFileClip(temp_video_path)  # 載入臨時影片
+video_duration = video_clip.duration  # 獲取影片總時長（秒）
+audio_clip = AudioFileClip(audio_path)  # 載入 MP3 音訊檔案
+audio_duration = audio_clip.duration  # 獲取音訊檔案的時長（秒）
+loop_count = int(video_duration / audio_duration) + 1  # 計算需要循環的次數（確保覆蓋影片時長）
+looped_audio = concatenate_audioclips([audio_clip] * loop_count)  # 將音訊檔案重複拼接成循環音訊
+final_audio = looped_audio.subclip(0, video_duration)  # 剪裁循環音訊，使其與影片時長匹配
+final_video = video_clip.set_audio(final_audio)  # 將循環音訊加入影片
+final_video.write_videofile(video_output_path, codec="libx264", audio_codec="aac")  # 生成最終影片，包含音訊
+video_clip.close()  # 關閉臨時影片物件
+final_audio.close()  # 關閉音訊物件
+os.remove(temp_video_path)  # 刪除臨時影片檔案，釋放空間
+print("🎬 ✅ 幻燈片視頻（含音樂）已創建！")  # 輸出完成訊息
